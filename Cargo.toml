@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/ddd"]
+
+[workspace.package]
+authors = ["clemenscodes"]
+edition = "2024"
+license = "AGPL-3.0-only"
+version = "0.1.0"
+
+[profile.release]
+codegen-units = 16
+opt-level = 3
+lto = false
+panic = 'unwind'
+strip = "symbols"
