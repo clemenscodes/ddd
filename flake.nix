@@ -49,6 +49,7 @@
             (craneLib.fileset.commonCargoSources ./.)
             ./rustfmt.toml
             ./clippy.toml
+            ./deny.toml
           ];
         };
 
@@ -75,6 +76,15 @@
           });
 
         cargoTest = craneLib.cargoTest (commonArgs // {inherit cargoArtifacts;});
+
+        # These blocks sit at the root of a dependency chain that ends in a
+        # product that is sold, so the license of anything they drag along is a
+        # build failure rather than something to notice later. There is nothing
+        # to drag along today, which is exactly when a gate is cheap to add.
+        cargoDeny = craneLib.cargoDeny {
+          inherit src;
+          cargoDenyChecks = "licenses";
+        };
       in {
         formatter = pkgs.alejandra;
 
@@ -84,7 +94,7 @@
         };
 
         checks = {
-          inherit ddd cargoFmt cargoClippy cargoTest;
+          inherit ddd cargoFmt cargoClippy cargoTest cargoDeny;
         };
 
         devShells.default = pkgs.mkShell {
