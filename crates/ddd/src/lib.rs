@@ -3,45 +3,50 @@
 //! This crate defines the vocabulary of a domain model as traits, so that "this
 //! is an aggregate root", "this is a domain event", "this type is infrastructure"
 //! become facts the compiler checks rather than conventions a reader must
-//! remember. It is pure: no async runtime, no browser, no framework — it depends
-//! on nothing and runs under native `cargo test`. It is itself a
-//! [`SharedKernel`]: the language every bounded context speaks.
+//! remember. It is dependency-free, no async runtime, no browser, no framework
+//! crate, and runs under native `cargo test`. The presentation markers
+//! ([`Presentation`], [`View`], [`Model`]) are shaped for a reactive,
+//! signal-based renderer, but name none and pull in none. It is itself a
+//! [`SharedKernel`], the language every bounded context speaks.
 //!
-//! Grouped by concern:
+//! Grouped by concern.
 //!
-//! - **Building blocks:** [`ValueObject`], [`Entity`], [`Identifier`],
+//! - **Building blocks.** [`ValueObject`], [`Entity`], [`Identifier`],
 //!   [`AggregateRoot`], [`Factory`].
-//! - **Domain logic:** [`DomainService`], [`Specification`], [`Policy`].
-//! - **Application / CQRS:** [`Command`], [`CommandHandler`], [`Query`],
+//! - **Domain logic.** [`DomainService`], [`Specification`], [`Policy`].
+//! - **Application and CQRS.** [`Command`], [`CommandHandler`], [`Query`],
 //!   [`QueryHandler`], [`ApplicationService`], [`Service`].
-//! - **Events:** [`DomainEvent`], [`EventHandler`], [`EventBus`], [`EventStore`],
+//! - **Events.** [`DomainEvent`], [`EventHandler`], [`EventBus`], [`EventStore`],
 //!   [`Projection`], [`ReadModel`].
-//! - **Persistence:** [`Repository`], [`UnitOfWork`].
-//! - **Hexagonal:** [`Port`], [`DrivingPort`], [`DrivenPort`], [`Adapter`].
-//! - **Layers:** [`Layer`], [`Layered`], [`DomainLayer`], [`ApplicationLayer`],
+//! - **Persistence.** [`Repository`], [`UnitOfWork`].
+//! - **Hexagonal.** [`Port`], [`DrivingPort`], [`DrivenPort`], [`Adapter`].
+//! - **Layers.** [`Layer`], [`Layered`], [`DomainLayer`], [`ApplicationLayer`],
 //!   [`InfrastructureLayer`], [`PresentationLayer`].
-//! - **Strategic:** [`BoundedContext`], [`SharedKernel`], [`AntiCorruptionLayer`],
+//! - **Strategic.** [`BoundedContext`], [`SharedKernel`], [`AntiCorruptionLayer`],
 //!   [`Saga`].
 //!
 //! # Three tiers of enforcement
 //!
-//! - **Structural** traits oblige real behaviour, so they enforce architecture:
+//! - **Structural** traits oblige real behaviour, so they enforce architecture,
 //!   [`Repository`], [`Command`], [`Service`], [`Specification`].
 //! - **Intent markers** enforce little or nothing and exist to make a type's role
-//!   legible and greppable: [`DomainService`], [`DomainEvent`], [`ReadModel`],
-//!   the strategic markers.
-//! - **Layer membership** is a single-valued associated type ([`Layered`]), which
-//!   makes the four layers *mutually exclusive*: a type carries exactly one
-//!   `Layered` impl, so a second layer is a conflicting implementation that does
-//!   not compile. This is how you reject wrong-layer types without a negative
-//!   trait bound — Rust has none, by design. Role markers pin a layer through it:
-//!   [`AggregateRoot`] requires [`DomainLayer`], [`ApplicationService`] requires
-//!   [`ApplicationLayer`], so one type can never be both.
+//!   legible and greppable, [`DomainService`], [`DomainEvent`], [`ReadModel`],
+//!   and the strategic markers.
+//! - **Layer membership** is a single valued associated type, [`Layered`], which
+//!   makes the four layers mutually exclusive. A type carries exactly one
+//!   `Layered` implementation, so a second layer is a conflicting implementation
+//!   that does not compile. This is how a wrong layer type is rejected without a
+//!   negative trait bound, which Rust has none of, by design. Role markers pin a
+//!   layer through it, [`AggregateRoot`] requires [`DomainLayer`],
+//!   [`ApplicationService`] requires [`ApplicationLayer`], so one type can never
+//!   be both.
 //!
-//! What none of these enforce is the dependency rule itself — that an inner layer
-//! never *names* an outer one. Only the crate graph does that, by making the
-//! dependency physically absent. Markers label and guard seams; crates are the
+//! What none of these enforce is the dependency rule itself, that an inner layer
+//! never names an outer one. Only the crate graph does that, by making the
+//! dependency physically absent. Markers label and guard seams, crates are the
 //! wall.
+
+#![warn(missing_docs)]
 
 mod adapter;
 mod aggregate_root;
@@ -59,8 +64,9 @@ mod event_store;
 mod factory;
 mod identifier;
 mod layer;
-mod policy;
 mod model;
+mod policy;
+mod port;
 mod presentation;
 mod projection;
 mod query;
@@ -96,8 +102,11 @@ pub use layer::InfrastructureLayer;
 pub use layer::Layer;
 pub use layer::Layered;
 pub use layer::PresentationLayer;
-pub use policy::Policy;
 pub use model::Model;
+pub use policy::Policy;
+pub use port::DrivenPort;
+pub use port::DrivingPort;
+pub use port::Port;
 pub use presentation::Presentation;
 pub use projection::Projection;
 pub use query::Query;

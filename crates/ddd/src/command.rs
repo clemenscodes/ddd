@@ -11,11 +11,13 @@ use crate::Layered;
 /// spent once carried out. A command is an application-layer input.
 ///
 /// This trait fuses the intention with its execution for ergonomics. Strict CQRS
-/// keeps them apart — the command as data, a [`crate::CommandHandler`] as the
-/// executor — which the vocabulary also offers.
+/// keeps them apart, the command as data, a [`crate::CommandHandler`] as the
+/// executor, which the vocabulary also offers.
 pub trait Command<Aggregate: AggregateRoot>: Layered<Layer = ApplicationLayer> {
-    /// What executing the command reports back — often the [`crate::DomainEvent`]s
-    /// it produced.
+    /// What executing the command reports back. It may be the
+    /// [`crate::DomainEvent`]s the change produced, but it need not be, a plain
+    /// value is equally valid. Left open, and carrying any such events onward to
+    /// an [`crate::EventBus`] is the application's job, not the command's.
     type Outcome;
 
     /// Applies this command to the aggregate and returns its outcome.

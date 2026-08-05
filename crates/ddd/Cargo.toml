@@ -4,7 +4,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Tactical Domain-Driven Design building blocks: value objects, entities, aggregate roots, repositories, commands, and application services."
+description = "Tactical Domain-Driven Design building blocks."
 
 [lib]
 path = "src/lib.rs"

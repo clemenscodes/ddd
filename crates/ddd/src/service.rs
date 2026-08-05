@@ -1,8 +1,9 @@
 use crate::AggregateRoot;
+use crate::ApplicationService;
 use crate::Command;
 use crate::Repository;
 
-/// The application-layer orchestrator for one [`AggregateRoot`]: it holds the
+/// The application layer orchestrator for one [`AggregateRoot`]. It holds the
 /// live aggregate, owns its [`Repository`], and is the sole place mutations
 /// happen.
 ///
@@ -10,10 +11,16 @@ use crate::Repository;
 /// (for named methods) or [`Service::dispatch`] (for reified [`Command`]s). Both
 /// paths write through to the repository in the same call, so stored state can
 /// never drift from the live aggregate. Implementors provide only the three
-/// primitives — [`Service::repository`], [`Service::snapshot`], and
-/// [`Service::replace`]; the write-through discipline is supplied here and
+/// primitives, [`Service::repository`], [`Service::snapshot`], and
+/// [`Service::replace`]. The write through discipline is supplied here and
 /// cannot be bypassed.
-pub trait Service<Aggregate: AggregateRoot> {
+///
+/// The [`ApplicationService`] bound pins the layer the same way every other
+/// functional role in this crate pins its own, so a domain or infrastructure
+/// type can never be a service. Reads by identity are the query side's job, the
+/// service owns the repository only as the write-through sink for the one
+/// aggregate it holds.
+pub trait Service<Aggregate: AggregateRoot>: ApplicationService {
     /// The concrete repository this service persists through.
     type Repository: Repository<Aggregate>;
 
@@ -27,7 +34,7 @@ pub trait Service<Aggregate: AggregateRoot> {
     fn replace(&self, aggregate: Aggregate);
 
     /// Runs a mutation against the aggregate and persists the result in the same
-    /// call — the single write-through path every mutation funnels through.
+    /// call, the single write through path every mutation funnels through.
     fn commit<Outcome>(&self, change: impl FnOnce(&mut Aggregate) -> Outcome) -> Outcome {
         let mut aggregate = self.snapshot();
         let outcome = change(&mut aggregate);
@@ -38,7 +45,7 @@ pub trait Service<Aggregate: AggregateRoot> {
     }
 
     /// Executes a named [`Command`] against the aggregate and persists the
-    /// result. Sugar over [`Service::commit`] for the reified-command path.
+    /// result. Sugar over [`Service::commit`] for the reified command path.
     fn dispatch<CommandType>(&self, command: CommandType) -> CommandType::Outcome
     where
         CommandType: Command<Aggregate>,

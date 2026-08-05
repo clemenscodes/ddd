@@ -5,10 +5,14 @@ use crate::Layered;
 /// and the handler is the code that carries it out.
 ///
 /// In this crate a [`crate::Command`] already knows how to `execute` itself and
-/// [`crate::Service::dispatch`] drives it — so a separate handler is optional. It
+/// [`crate::Service::dispatch`] drives it, so a separate handler is optional. It
 /// earns its place when execution needs collaborators a plain command should not
 /// hold (a domain service, a clock, another repository), which the handler owns
 /// while the command stays a pure request.
+///
+/// `TheCommand` is intentionally unbounded, unlike [`crate::QueryHandler`]'s
+/// query. In the strict-CQRS split the command is plain data and need not
+/// implement the fused [`crate::Command`] trait, which carries `execute`.
 pub trait CommandHandler<TheCommand>: Layered<Layer = ApplicationLayer> {
     /// What handling the command reports back.
     type Outcome;

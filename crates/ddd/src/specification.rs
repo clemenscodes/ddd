@@ -2,13 +2,13 @@ use crate::DomainLayer;
 use crate::Layered;
 
 /// A named, composable predicate that answers "does this candidate satisfy this
-/// piece of domain truth?" as a first-class value.
+/// piece of domain truth?" as a first class value.
 ///
-/// Instead of scattering `binding.hotkey().is_none() && binding.slot().in_grid()`
-/// across the code, name it — `Unbound.and(InGrid)` — and reuse it for filtering,
-/// validation, and expressing rules declaratively. The collisions and resolve
-/// views are the natural home in the editor: each is a specification over
-/// bindings. The default combinators build the boolean algebra.
+/// Instead of scattering a raw boolean expression across the code, name it, for
+/// example `Active.and(Overdue)`, and reuse it for filtering, validation, and
+/// expressing rules declaratively. A list view and a report are natural homes, each
+/// is a specification over the same candidate. The default combinators build the
+/// boolean algebra.
 pub trait Specification<Candidate>: Layered<Layer = DomainLayer> {
     /// Returns whether the candidate satisfies this specification.
     fn is_satisfied_by(&self, candidate: &Candidate) -> bool;
@@ -42,7 +42,9 @@ pub trait Specification<Candidate>: Layered<Layer = DomainLayer> {
     where
         Self: Sized,
     {
-        Not { inner: self }
+        Not {
+            inner: self,
+        }
     }
 }
 
@@ -66,15 +68,28 @@ pub struct Not<Inner> {
     inner: Inner,
 }
 
-impl<Left, Right> Layered for And<Left, Right> {
+// The combinators carry the domain-layer marker only when the specifications they
+// wrap do, so a nonsense composite over non-domain types is not certified domain.
+impl<Left, Right> Layered for And<Left, Right>
+where
+    Left: Layered<Layer = DomainLayer>,
+    Right: Layered<Layer = DomainLayer>,
+{
     type Layer = DomainLayer;
 }
 
-impl<Left, Right> Layered for Or<Left, Right> {
+impl<Left, Right> Layered for Or<Left, Right>
+where
+    Left: Layered<Layer = DomainLayer>,
+    Right: Layered<Layer = DomainLayer>,
+{
     type Layer = DomainLayer;
 }
 
-impl<Inner> Layered for Not<Inner> {
+impl<Inner> Layered for Not<Inner>
+where
+    Inner: Layered<Layer = DomainLayer>,
+{
     type Layer = DomainLayer;
 }
 

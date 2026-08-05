@@ -38,7 +38,19 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        src = craneLib.cleanCargoSource ./.;
+        # cleanCargoSource drops every non-Rust file, which would take
+        # rustfmt.toml and clippy.toml with it and leave the fmt and clippy
+        # gates judging this tree by defaults instead of by its own settings.
+        # The sources these blocks are shared with are formatted at two spaces,
+        # so a default run would reformat all of them.
+        src = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            (craneLib.fileset.commonCargoSources ./.)
+            ./rustfmt.toml
+            ./clippy.toml
+          ];
+        };
 
         commonArgs = {
           inherit src;

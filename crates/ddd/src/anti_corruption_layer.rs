@@ -3,7 +3,7 @@
 ///
 /// When a context must integrate with a foreign or legacy model, an
 /// anti-corruption layer translates between the two languages at the seam, so the
-/// foreign concepts never contaminate the local model. Translating the game's
-/// raw extracted data into the editor's clean binding model is an ACL's job. An
+/// foreign concepts never contaminate the local model. Translating a foreign
+/// system's raw data into this system's clean domain model is an ACL's job. An
 /// intent marker for the translating type.
 pub trait AntiCorruptionLayer {}
