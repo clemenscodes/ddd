@@ -1,6 +1,15 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::convert::Infallible;
+use std::future::Future;
+use std::pin::pin;
+use std::ptr;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::task::Context;
+use std::task::Poll;
+use std::task::RawWaker;
+use std::task::RawWakerVTable;
+use std::task::Waker;
 
 use ddd::Adapter;
 use ddd::AggregateRoot;
@@ -16,6 +25,39 @@ use ddd::Repository;
 use ddd::Service;
 use ddd::Specification;
 use ddd::ValueObject;
+
+/// Drives a future to completion by polling it in a loop with a waker that does
+/// nothing at all. This crate has no dependencies and no runtime, so a test that
+/// wants an answer out of a future has to do the driving itself.
+///
+/// It is enough here for one reason and only that reason. The repository under
+/// test keeps its aggregates in a map in memory, so it never actually waits on
+/// anything and every future it hands back is already finished the first time it
+/// is polled. A future that genuinely waits would return `Poll::Pending` and
+/// then never be woken, because this waker drops every wake on the floor, so the
+/// loop would spin a core for ever. This is a test driver and nothing else.
+fn block_on<FutureType>(future: FutureType) -> FutureType::Output
+where
+    FutureType: Future,
+{
+    static VTABLE: RawWakerVTable =
+        RawWakerVTable::new(|_| RawWaker::new(ptr::null(), &VTABLE), |_| {}, |_| {}, |_| {});
+
+    let raw_waker = RawWaker::new(ptr::null(), &VTABLE);
+
+    // Safety, the vtable above only ever clones the same dangling raw waker and
+    // does nothing on wake or drop, so it never touches the null data pointer.
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut context = Context::from_waker(&waker);
+    let mut future = pin!(future);
+
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => continue,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 struct CounterId(u32);
@@ -58,9 +100,12 @@ impl Entity for Counter {
 
 impl AggregateRoot for Counter {}
 
+// The stored map sits behind `Arc<Mutex<..>>` rather than `Rc<RefCell<..>>`,
+// because a repository owes futures that are `Send` and neither `Rc` nor
+// `RefCell` is.
 #[derive(Clone, Debug, Default)]
 struct InMemoryCounterRepository {
-    stored: Rc<RefCell<HashMap<CounterId, Counter>>>,
+    stored: Arc<Mutex<HashMap<CounterId, Counter>>>,
 }
 
 impl Layered for InMemoryCounterRepository {
@@ -70,22 +115,30 @@ impl Layered for InMemoryCounterRepository {
 impl Adapter for InMemoryCounterRepository {}
 
 impl Repository<Counter> for InMemoryCounterRepository {
-    fn find_by_id(&self, id: &CounterId) -> Option<Counter> {
-        self.stored.borrow().get(id).copied()
+    // A map in memory has nothing to refuse with, so the failure of this store is
+    // the one that is never constructed.
+    type Failure = Infallible;
+
+    async fn find_by_id(&self, id: &CounterId) -> Result<Option<Counter>, Self::Failure> {
+        let stored = self.stored.lock().expect("the stored map was not poisoned");
+        Ok(stored.get(id).copied())
     }
 
-    fn find_many(&self, ids: &[CounterId]) -> Vec<Counter> {
-        let stored = self.stored.borrow();
-        ids.iter().filter_map(|id| stored.get(id).copied()).collect()
+    async fn find_many(&self, ids: &[CounterId]) -> Result<Vec<Counter>, Self::Failure> {
+        let stored = self.stored.lock().expect("the stored map was not poisoned");
+        Ok(ids.iter().filter_map(|id| stored.get(id).copied()).collect())
     }
 
-    fn save(&self, aggregate: &Counter) {
+    async fn save(&self, aggregate: &Counter) -> Result<(), Self::Failure> {
         let snapshot = *aggregate;
-        self.stored.borrow_mut().insert(snapshot.id, snapshot);
+        let mut stored = self.stored.lock().expect("the stored map was not poisoned");
+        stored.insert(snapshot.id, snapshot);
+        Ok(())
     }
 
-    fn delete(&self, id: &CounterId) -> Option<Counter> {
-        self.stored.borrow_mut().remove(id)
+    async fn delete(&self, id: &CounterId) -> Result<Option<Counter>, Self::Failure> {
+        let mut stored = self.stored.lock().expect("the stored map was not poisoned");
+        Ok(stored.remove(id))
     }
 }
 
@@ -109,9 +162,11 @@ impl Command<Counter> for Increment {
     }
 }
 
+// The live aggregate is behind `Arc<Mutex<..>>` for the same reason the stored
+// map is, the service is borrowed across a wait and so has to be `Sync`.
 #[derive(Clone, Debug, Default)]
 struct CounterService {
-    aggregate: Rc<RefCell<Counter>>,
+    aggregate: Arc<Mutex<Counter>>,
     repository: InMemoryCounterRepository,
 }
 
@@ -129,12 +184,12 @@ impl Service<Counter> for CounterService {
     }
 
     fn snapshot(&self) -> Counter {
-        let aggregate = self.aggregate.borrow();
+        let aggregate = self.aggregate.lock().expect("the live aggregate was not poisoned");
         *aggregate
     }
 
     fn replace(&self, aggregate: Counter) {
-        let mut current = self.aggregate.borrow_mut();
+        let mut current = self.aggregate.lock().expect("the live aggregate was not poisoned");
         *current = aggregate;
     }
 }
@@ -152,14 +207,15 @@ fn dispatch_applies_command_and_writes_through_to_the_repository() {
     let increment = Increment {
         amount: 3,
     };
-    let outcome = service.dispatch(increment);
+    let outcome = block_on(service.dispatch(increment)).expect("the store accepted the write");
 
     assert_eq!(outcome, 3);
 
     let live_aggregate = service.snapshot();
     assert_eq!(live_aggregate.value(), 3);
 
-    let persisted_aggregate = service.repository().find_by_id(&CounterId::default());
+    let persisted_aggregate = block_on(service.repository().find_by_id(&CounterId::default()))
+        .expect("the store answered");
     let expected_aggregate = Counter {
         id: CounterId::default(),
         value: 3,
@@ -172,12 +228,14 @@ fn dispatch_applies_command_and_writes_through_to_the_repository() {
 fn commit_is_the_write_through_path_for_named_mutations() {
     let service = CounterService::default();
 
-    service.commit(|counter| {
+    let change = |counter: &mut Counter| {
         let recomputed_value = counter.value() + 5;
         counter.set_value(recomputed_value);
-    });
+    };
+    block_on(service.commit(change)).expect("the store accepted the write");
 
-    let persisted_aggregate = service.repository().find_by_id(&CounterId::default());
+    let persisted_aggregate = block_on(service.repository().find_by_id(&CounterId::default()))
+        .expect("the store answered");
     let expected_aggregate = Counter {
         id: CounterId::default(),
         value: 5,
@@ -324,36 +382,48 @@ fn specifications_compose_with_boolean_combinators() {
 
 #[test]
 fn repository_is_a_collection_keyed_by_identity() {
-    let repository = InMemoryCounterRepository::default();
+    block_on(async {
+        let repository = InMemoryCounterRepository::default();
 
-    let first = Counter {
-        id: CounterId(1),
-        value: 10,
-    };
-    let second = Counter {
-        id: CounterId(2),
-        value: 20,
-    };
-    repository.save(&first);
-    repository.save(&second);
+        let first = Counter {
+            id: CounterId(1),
+            value: 10,
+        };
+        let second = Counter {
+            id: CounterId(2),
+            value: 20,
+        };
+        repository.save(&first).await.expect("the store accepted the write");
+        repository.save(&second).await.expect("the store accepted the write");
 
-    assert_eq!(repository.find_by_id(&CounterId(1)), Some(first));
-    assert_eq!(repository.find_by_id(&CounterId(3)), None);
+        let found_first = repository.find_by_id(&CounterId(1)).await.expect("the store answered");
+        assert_eq!(found_first, Some(first));
+        let found_third = repository.find_by_id(&CounterId(3)).await.expect("the store answered");
+        assert_eq!(found_third, None);
 
-    // find_many drops the identities that store nothing rather than padding.
-    let found = repository.find_many(&[CounterId(1), CounterId(3), CounterId(2)]);
-    assert_eq!(found, vec![first, second]);
+        // find_many drops the identities that store nothing rather than padding.
+        let found = repository
+            .find_many(&[CounterId(1), CounterId(3), CounterId(2)])
+            .await
+            .expect("the store answered");
+        assert_eq!(found, vec![first, second]);
 
-    // save keyed by identity replaces the stored aggregate wholesale.
-    let first_grown = Counter {
-        id: CounterId(1),
-        value: 11,
-    };
-    repository.save(&first_grown);
-    assert_eq!(repository.find_by_id(&CounterId(1)), Some(first_grown));
+        // save keyed by identity replaces the stored aggregate wholesale.
+        let first_grown = Counter {
+            id: CounterId(1),
+            value: 11,
+        };
+        repository.save(&first_grown).await.expect("the store accepted the write");
+        let found_grown = repository.find_by_id(&CounterId(1)).await.expect("the store answered");
+        assert_eq!(found_grown, Some(first_grown));
 
-    // delete returns what it removed, and a second delete finds nothing.
-    assert_eq!(repository.delete(&CounterId(1)), Some(first_grown));
-    assert_eq!(repository.delete(&CounterId(1)), None);
-    assert_eq!(repository.find_by_id(&CounterId(1)), None);
+        // delete returns what it removed, and a second delete finds nothing.
+        let deleted = repository.delete(&CounterId(1)).await.expect("the store answered");
+        assert_eq!(deleted, Some(first_grown));
+        let deleted_again = repository.delete(&CounterId(1)).await.expect("the store answered");
+        assert_eq!(deleted_again, None);
+        let found_after_delete =
+            repository.find_by_id(&CounterId(1)).await.expect("the store answered");
+        assert_eq!(found_after_delete, None);
+    });
 }
