@@ -8,5 +8,5 @@ expressed as a domain-agnostic set of Rust traits.
 
 ```toml
 [dependencies]
-ddd = { git = "https://github.com/clemenscodes/ddd", tag = "v0.3.0" }
+ddd = { git = "https://github.com/clemenscodes/ddd", tag = "v0.4.0" }
 ```

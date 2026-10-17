@@ -15,10 +15,10 @@
 //!   [`AggregateRoot`], [`Factory`].
 //! - **Domain logic.** [`DomainService`], [`Specification`], [`Policy`].
 //! - **Application and CQRS.** [`Command`], [`CommandHandler`], [`Query`],
-//!   [`QueryHandler`], [`ApplicationService`], [`Service`].
+//!   [`QueryHandler`], [`ApplicationService`], [`Service`], [`SynchronousService`].
 //! - **Events.** [`DomainEvent`], [`EventHandler`], [`EventBus`], [`EventStore`],
 //!   [`Projection`], [`ReadModel`].
-//! - **Persistence.** [`Repository`], [`UnitOfWork`].
+//! - **Persistence.** [`Repository`], [`SynchronousRepository`], [`UnitOfWork`].
 //! - **Hexagonal.** [`Port`], [`DrivingPort`], [`DrivenPort`], [`Adapter`].
 //! - **Layers.** [`Layer`], [`Layered`], [`DomainLayer`], [`ApplicationLayer`],
 //!   [`InfrastructureLayer`], [`PresentationLayer`].
@@ -77,6 +77,8 @@ mod saga;
 mod service;
 mod shared_kernel;
 mod specification;
+mod synchronous_repository;
+mod synchronous_service;
 mod unit_of_work;
 mod value_object;
 mod view;
@@ -120,6 +122,8 @@ pub use specification::And;
 pub use specification::Not;
 pub use specification::Or;
 pub use specification::Specification;
+pub use synchronous_repository::SynchronousRepository;
+pub use synchronous_service::SynchronousService;
 pub use unit_of_work::UnitOfWork;
 pub use value_object::ValueObject;
 pub use view::View;
